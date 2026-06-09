@@ -1,0 +1,57 @@
+name: Build and Draft Release
+
+# Triggers manually or when a version tag (e.g., v1.3.0) is pushed
+on:
+    workflow_dispatch:
+    push:
+        tags:
+            - 'v*'
+
+jobs:
+    build-and-draft:
+        runs-on: windows-latest
+        permissions:
+            contents: write # Required to create releases
+
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@v6
+
+            - name: Setup .NET 8
+              uses: actions/setup-dotnet@v5
+              with:
+                  dotnet-version: '8.0.x'
+
+            - name: Publish C# Application
+              # Builds the app to a 'publish' folder. Framework-dependent to keep size small.
+              run: dotnet publish WinKey_CommandPalette_Replacement/WinKey_CommandPalette_Replacement.csproj -c Release -r win-x64 --self-contained false -o ./publish
+
+            - name: Compile PS1 to EXE
+              shell: pwsh
+              run: |
+                  # Install ps2exe quietly
+                  Install-Module ps2exe -Force -AcceptLicense -Scope CurrentUser
+
+                  # Convert the installer script to an executable
+                  Invoke-ps2exe -inputFile WinKeyRemapper-Installer.ps1 -outputFile WinKeyRemapper-Installer.exe -noConsole -title "Win Key Remapper Installer"
+
+            - name: Inject Installers into ZIP
+              shell: pwsh
+              run: |
+                  # Copy BOTH the .ps1 and .exe into the publish folder so they get zipped
+                  # This ensures the auto-updater receives the updated scripts
+                  Copy-Item WinKeyRemapper-Installer.ps1 -Destination ./publish/
+                  Copy-Item WinKeyRemapper-Installer.exe -Destination ./publish/
+
+            - name: Compress Release ZIP
+              shell: pwsh
+              run: |
+                  Compress-Archive -Path ./publish/* -DestinationPath WinKey_CommandPalette_Replacement.zip
+
+            - name: Create Draft GitHub Release
+              uses: softprops/action-gh-release@v3
+              with:
+                  draft: true
+                  files: |
+                      WinKey_CommandPalette_Replacement.zip
+                      WinKeyRemapper-Installer.exe
