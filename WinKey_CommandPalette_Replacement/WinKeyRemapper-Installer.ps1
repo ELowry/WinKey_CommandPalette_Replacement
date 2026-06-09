@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(HelpMessage = "Action to perform: install, uninstall, startup-enable, startup-disable, status, logs, start, stop, update, or menu")]
     [ValidateSet("install", "uninstall", "startup-enable", "startup-disable", "status", "logs", "start", "stop", "update", "menu")]
     [string]$Action = "menu"
@@ -799,10 +799,10 @@ function Create-IntelligentStartupScript {
 REM Intelligent Startup Script for Win Key Remapper
 REM Waits for PowerToys to load first, then starts Win Key Remapper
 
-echo %date% %time% - Starting Win Key Remapper intelligent startup >> "C:\temp\winkey-startup.log"
+echo %date% %time% - Starting Win Key Remapper intelligent startup >> "%TEMP%\winkey-startup.log"
 
 REM Wait for desktop to be ready (basic startup delay)
-echo %date% %time% - Waiting for desktop stability... >> "C:\temp\winkey-startup.log"
+echo %date% %time% - Waiting for desktop stability... >> "%TEMP%\winkey-startup.log"
 timeout /t 5 /nobreak > nul
 
 REM Check if PowerToys is running (try for up to 60 seconds)
@@ -813,72 +813,67 @@ set /a counter+=1
 REM Check for PowerToys processes
 tasklist /FI "IMAGENAME eq PowerToys.exe" | find /i "PowerToys.exe" > nul
 if %errorlevel% == 0 (
-    echo %date% %time% - PowerToys found running, proceeding... >> "C:\temp\winkey-startup.log"
+    echo %date% %time% - PowerToys found running, proceeding... >> "%TEMP%\winkey-startup.log"
     goto start_winkey
 )
 
 tasklist /FI "IMAGENAME eq PowerToys.Settings.exe" | find /i "PowerToys.Settings.exe" > nul
 if %errorlevel% == 0 (
-    echo %date% %time% - PowerToys Settings found, PowerToys likely running... >> "C:\temp\winkey-startup.log"
+    echo %date% %time% - PowerToys Settings found, PowerToys likely running... >> "%TEMP%\winkey-startup.log"
     goto start_winkey
 )
 
 REM Check for PowerToys Run (Command Palette component)
 tasklist /FI "IMAGENAME eq PowerToys.PowerLauncher.exe" | find /i "PowerToys.PowerLauncher.exe" > nul
 if %errorlevel% == 0 (
-    echo %date% %time% - PowerToys PowerLauncher found, proceeding... >> "C:\temp\winkey-startup.log"
+    echo %date% %time% - PowerToys PowerLauncher found, proceeding... >> "%TEMP%\winkey-startup.log"
     goto start_winkey
 )
 
 REM If not found, wait and try again (up to 12 times = 60 seconds)
 if %counter% LSS 12 (
-    echo %date% %time% - PowerToys not found yet, waiting... (attempt %counter%/12) >> "C:\temp\winkey-startup.log"
+    echo %date% %time% - PowerToys not found yet, waiting... (attempt %counter%/12) >> "%TEMP%\winkey-startup.log"
     timeout /t 5 /nobreak > nul
     goto check_powertoys
 )
 
 REM PowerToys not found after timeout - start anyway with warning
-echo %date% %time% - WARNING: PowerToys not detected after 60 seconds, starting Win Key Remapper anyway >> "C:\temp\winkey-startup.log"
+echo %date% %time% - WARNING: PowerToys not detected after 60 seconds, starting Win Key Remapper anyway >> "%TEMP%\winkey-startup.log"
 
 :start_winkey
-echo %date% %time% - Starting Win Key Remapper... >> "C:\temp\winkey-startup.log"
+echo %date% %time% - Starting Win Key Remapper... >> "%TEMP%\winkey-startup.log"
 
 REM Change to app directory
 cd /d "$($InstallPath.Replace('\', '\\'))"
 
 REM Check if our EXE exists
 if exist "$ExeName" (
-    echo %date% %time% - Launching $ExeName >> "C:\temp\winkey-startup.log"
+    echo %date% %time% - Launching $ExeName >> "%TEMP%\winkey-startup.log"
     start "" "$ExeName"
     
     REM Wait a moment and verify it started
     timeout /t 3 /nobreak > nul
-    tasklist | findstr "$($ExeName.Replace('.exe', ''))" >> "C:\temp\winkey-startup.log" 2>&1
+    tasklist | findstr "$($ExeName.Replace('.exe', ''))" >> "%TEMP%\winkey-startup.log" 2>&1
     if %errorlevel% == 0 (
-        echo %date% %time% - SUCCESS: Win Key Remapper started and confirmed running >> "C:\temp\winkey-startup.log"
+        echo %date% %time% - SUCCESS: Win Key Remapper started and confirmed running >> "%TEMP%\winkey-startup.log"
     ) else (
-        echo %date% %time% - WARNING: Win Key Remapper may not have started properly >> "C:\temp\winkey-startup.log"
+        echo %date% %time% - WARNING: Win Key Remapper may not have started properly >> "%TEMP%\winkey-startup.log"
     )
 ) else (
-    echo %date% %time% - ERROR: $ExeName not found in $InstallPath >> "C:\temp\winkey-startup.log"
+    echo %date% %time% - ERROR: $ExeName not found in $InstallPath >> "%TEMP%\winkey-startup.log"
 )
 
-echo %date% %time% - Startup script completed >> "C:\temp\winkey-startup.log"
+echo %date% %time% - Startup script completed >> "%TEMP%\winkey-startup.log"
 "@
 
     # Save the startup script
     $scriptPath = Join-Path $InstallPath "WinKeyRemapper-Startup.bat"
     
-    # Create temp directory for logs
-    if (!(Test-Path "C:\temp")) {
-        New-Item -ItemType Directory -Path "C:\temp" -Force | Out-Null
-    }
-    
     # Write the script
     $scriptContent | Out-File -FilePath $scriptPath -Encoding ASCII -Force
     
     Write-ColoredOutput "Created intelligent startup script: $scriptPath" $ColorSuccess
-    Write-ColoredOutput "Logs will be written to: C:\temp\winkey-startup.log" $ColorInfo
+    Write-ColoredOutput "Logs will be written to: $env:TEMP\winkey-startup.log" $ColorInfo
     
     return $scriptPath
 }
@@ -1474,8 +1469,8 @@ function Show-Status {
         }
         
         # Check for startup logs
-        if (Test-Path "C:\temp\winkey-startup.log") {
-            $logLines = Get-Content "C:\temp\winkey-startup.log" -Tail 3 -ErrorAction SilentlyContinue
+        if (Test-Path "$env:TEMP\winkey-startup.log") {
+            $logLines = Get-Content "$env:TEMP\winkey-startup.log" -Tail 3 -ErrorAction SilentlyContinue
             if ($logLines) {
                 Write-ColoredOutput "📋 Recent startup log entries:" $ColorInfo
                 foreach ($line in $logLines) {
@@ -1515,7 +1510,7 @@ function Show-StartupLogs {
     Write-ColoredOutput "Startup Logs Viewer" $ColorPrompt
     Write-ColoredOutput ""
     
-    $logPath = "C:\temp\winkey-startup.log"
+    $logPath = "$env:TEMP\winkey-startup.log"
     
     if (Test-Path $logPath) {
         try {
