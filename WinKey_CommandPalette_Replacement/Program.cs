@@ -1,9 +1,10 @@
-﻿// Build as WinExe (.NET 6/7/8). Run as Administrator for coverage in elevated apps.
+// Build as WinExe (.NET 6/7/8). Run as Administrator for coverage in elevated apps.
 // Pure state-based handling; always blocks Win key and simulates the appropriate sequence
 using System.Globalization; // add this at the top with your other using statements
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Threading;
 
 internal static class Program
 {
@@ -51,9 +52,18 @@ internal static class Program
         public IntPtr WParam;
     }
 
+    static Mutex? _mutex;
+
     [STAThread]
     static void Main()
     {
+        _mutex = new Mutex(true, "WinKey_CommandPalette_Replacement_Mutex", out bool createdNew);
+        if (!createdNew)
+        {
+            Console.WriteLine("Another instance is already running. Exiting.");
+            return;
+        }
+
         Console.WriteLine("Starting Win key remapper with debugging...");
 
         // Test basic input capabilities at startup
