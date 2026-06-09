@@ -1,4 +1,4 @@
-﻿// Build as WinExe (.NET 6/7/8). Run as Administrator for coverage in elevated apps.
+// Build as WinExe (.NET 6/7/8). Run as Administrator for coverage in elevated apps.
 // Pure state-based handling; always blocks Win key and simulates the appropriate sequence
 using System.Globalization; // add this at the top with your other using statements
 using System.Diagnostics;
@@ -37,9 +37,8 @@ internal static class Program
     static bool _winDown = false;
     static bool _ctrlDown = false;
     static bool _shiftDown = false;
-    static bool _passthroughMode = false;  // NEW: Passthrough mode flag
+    static bool _passthroughMode = false;
     static int _winKeyPressed = 0;
-    static List<KeyEvent> _keysWhileWinDown = new List<KeyEvent>();
 
     // Tag injected inputs so our hook ignores them
     static readonly IntPtr OUR_TAG = new IntPtr(unchecked((int)0xB00BF00D));
@@ -334,12 +333,7 @@ internal static class Program
                         Console.WriteLine($"Passthrough mode: {vk:X} {(isDown ? "DOWN" : "UP")}");
                         return CallNextHookEx(_hook, nCode, wParam, lParam);
                     }
-                    else
-                    {
-                        // Still monitoring for first key (or key up events before passthrough)
-                        _keysWhileWinDown.Add(new KeyEvent { VirtualKey = vk, IsDown = isDown, WParam = wParam });
-                        return (IntPtr)1; // Block it
-                    }
+                    // Else: it's a key UP event before passthrough, let it pass through to prevent stuck keys.
                 }
 
                 return CallNextHookEx(_hook, nCode, wParam, lParam);
@@ -364,7 +358,6 @@ internal static class Program
                     Console.WriteLine($"Win key down: {vk:X}");
                     _winDown = true;
                     _winKeyPressed = vk;
-                    _keysWhileWinDown.Clear();
                     _passthroughMode = false; // Reset passthrough mode
                     return (IntPtr)1; // Always block Win key
                 }
@@ -387,7 +380,6 @@ internal static class Program
                         ActivateCommandPalette();
                     }
 
-                    _keysWhileWinDown.Clear();
                     return (IntPtr)1;
                 }
             }
@@ -413,12 +405,7 @@ internal static class Program
                         Console.WriteLine($"Passthrough mode: {vk:X} {(isDown ? "DOWN" : "UP")}");
                         return CallNextHookEx(_hook, nCode, wParam, lParam);
                     }
-                    else
-                    {
-                        // Still monitoring for first key (or key up events before passthrough)
-                        _keysWhileWinDown.Add(new KeyEvent { VirtualKey = vk, IsDown = isDown, WParam = wParam });
-                        return (IntPtr)1; // Block it
-                    }
+                    // Else: it's a key UP event before passthrough, let it pass through to prevent stuck keys.
                 }
             }
         }
@@ -433,7 +420,8 @@ internal static class Program
         if (!SendShortcutWithSendInput(_paletteShortcut))
         {
             Console.WriteLine("SendInput failed, falling back to keybd_event...");
-            SendShortcutWithKeybdEvent(_paletteShortcut);
+            // Run asynchronously to avoid blocking the low-level hook
+            System.Threading.Tasks.Task.Run(() => SendShortcutWithKeybdEvent(_paletteShortcut));
         }
     }
 
@@ -441,20 +429,30 @@ internal static class Program
     {
         var inputs = new List<INPUT>();
 
-        // Modifiers down
+        // Modifiers down / Compensation
         if (shortcut.Win) inputs.Add(KeyDown(VK_LWIN));
-        if (shortcut.Ctrl) inputs.Add(KeyDown(VK_CONTROL));
+        
+        if (shortcut.Ctrl && !_ctrlDown) inputs.Add(KeyDown(VK_CONTROL));
+        else if (!shortcut.Ctrl && _ctrlDown) inputs.Add(KeyUp(VK_CONTROL)); // Release physical Ctrl
+
         if (shortcut.Alt) inputs.Add(KeyDown(VK_MENU));
-        if (shortcut.Shift) inputs.Add(KeyDown(VK_SHIFT));
+        
+        if (shortcut.Shift && !_shiftDown) inputs.Add(KeyDown(VK_SHIFT));
+        else if (!shortcut.Shift && _shiftDown) inputs.Add(KeyUp(VK_SHIFT)); // Release physical Shift
 
         // Main key down/up
         inputs.Add(KeyDown(shortcut.MainKey));
         inputs.Add(KeyUp(shortcut.MainKey));
 
-        // Modifiers up
-        if (shortcut.Shift) inputs.Add(KeyUp(VK_SHIFT));
+        // Modifiers up / Restore
+        if (shortcut.Shift && !_shiftDown) inputs.Add(KeyUp(VK_SHIFT));
+        else if (!shortcut.Shift && _shiftDown) inputs.Add(KeyDown(VK_SHIFT)); // Restore physical Shift
+
         if (shortcut.Alt) inputs.Add(KeyUp(VK_MENU));
-        if (shortcut.Ctrl) inputs.Add(KeyUp(VK_CONTROL));
+        
+        if (shortcut.Ctrl && !_ctrlDown) inputs.Add(KeyUp(VK_CONTROL));
+        else if (!shortcut.Ctrl && _ctrlDown) inputs.Add(KeyDown(VK_CONTROL)); // Restore physical Ctrl
+        
         if (shortcut.Win) inputs.Add(KeyUp(VK_LWIN));
 
         var arr = inputs.ToArray();
@@ -479,9 +477,15 @@ internal static class Program
             void Up(int vk) => keybd_event((byte)vk, 0, KEYEVENTF_KEYUP, OUR_TAG);
 
             if (shortcut.Win) Down(VK_LWIN);
-            if (shortcut.Ctrl) Down(VK_CONTROL);
+            
+            if (shortcut.Ctrl && !_ctrlDown) Down(VK_CONTROL);
+            else if (!shortcut.Ctrl && _ctrlDown) Up(VK_CONTROL);
+
             if (shortcut.Alt) Down(VK_MENU);
-            if (shortcut.Shift) Down(VK_SHIFT);
+            
+            if (shortcut.Shift && !_shiftDown) Down(VK_SHIFT);
+            else if (!shortcut.Shift && _shiftDown) Up(VK_SHIFT);
+
             System.Threading.Thread.Sleep(5);
 
             Down(shortcut.MainKey);
@@ -489,9 +493,14 @@ internal static class Program
             Up(shortcut.MainKey);
             System.Threading.Thread.Sleep(5);
 
-            if (shortcut.Shift) Up(VK_SHIFT);
+            if (shortcut.Shift && !_shiftDown) Up(VK_SHIFT);
+            else if (!shortcut.Shift && _shiftDown) Down(VK_SHIFT);
+
             if (shortcut.Alt) Up(VK_MENU);
-            if (shortcut.Ctrl) Up(VK_CONTROL);
+            
+            if (shortcut.Ctrl && !_ctrlDown) Up(VK_CONTROL);
+            else if (!shortcut.Ctrl && _ctrlDown) Down(VK_CONTROL);
+            
             if (shortcut.Win) Up(VK_LWIN);
 
             Console.WriteLine("keybd_event shortcut sequence sent successfully");
